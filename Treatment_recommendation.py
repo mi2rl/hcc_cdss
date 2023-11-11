@@ -1,0 +1,762 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "import matplotlib.pyplot as plt\n",
+    "import os\n",
+    "from tqdm import tqdm\n",
+    "\n",
+    "from sklearn.preprocessing import MinMaxScaler\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.model_selection import StratifiedKFold\n",
+    "from sklearn.linear_model import LogisticRegression\n",
+    "from sklearn.tree import DecisionTreeClassifier\n",
+    "from sklearn.ensemble import ExtraTreesClassifier\n",
+    "from sklearn.ensemble import RandomForestClassifier\n",
+    "from sklearn.ensemble import AdaBoostClassifier\n",
+    "from sklearn.ensemble import GradientBoostingClassifier\n",
+    "from sklearn.experimental import enable_hist_gradient_boosting  \n",
+    "from sklearn.ensemble import HistGradientBoostingClassifier\n",
+    "import xgboost as xgb\n",
+    "from lightgbm import LGBMClassifier\n",
+    "from catboost import CatBoostClassifier\n",
+    "from sklearn.naive_bayes import GaussianNB\n",
+    "from sklearn.naive_bayes import BernoulliNB\n",
+    "from sklearn.gaussian_process import GaussianProcessClassifier\n",
+    "from sklearn.discriminant_analysis import LinearDiscriminantAnalysis\n",
+    "from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis\n",
+    "from sklearn import svm\n",
+    "from sklearn.neural_network import MLPClassifier\n",
+    "from sklearn.neighbors import KNeighborsClassifier\n",
+    "from sklearn.cluster import KMeans\n",
+    "from sklearn.ensemble import VotingClassifier\n",
+    "\n",
+    "from sklearn.metrics import accuracy_score\n",
+    "from sklearn.metrics import recall_score\n",
+    "from sklearn.metrics import precision_score\n",
+    "from sklearn.metrics import f1_score\n",
+    "from sklearn.metrics import cohen_kappa_score\n",
+    "from sklearn.metrics import matthews_corrcoef"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Model for Treatment Recommendation"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 0. Lodading dataset "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "df = pd.read_excel('/workspace/HCC/0_All_rev.xlsx', \n",
+    "                   sheet_name='All', engine='openpyxl')\n",
+    "\n",
+    "df = df.fillna(0)\n",
+    "\n",
+    "for i in df.columns[1:-1]:\n",
+    "    for j in range(len(df)):\n",
+    "        df.loc[j,i] = float(df.loc[j,i])\n",
+    "\n",
+    "df_KU = df[df['Center'] == 1]\n",
+    "df_BH = df[df['Center'] == 2]\n",
+    "df_SM = df[df['Center'] == 3]\n",
+    "df_SN = df[df['Center'] == 4]\n",
+    "df_CM = df[df['Center'] == 5]\n",
+    "df_SV = df[df['Center'] == 6]\n",
+    "df_AM = df[df['Center'] == 7]\n",
+    "df_CA = df[df['Center'] == 8]\n",
+    "df_IH = df[df['Center'] == 9]"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 1. Model training and validation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "skf = StratifiedKFold(n_splits = 5, shuffle = True, random_state = 999)\n",
+    "\n",
+    "X = np.array(df_AM.loc[:, 'age':'Meta'])\n",
+    "y = np.array(df_AM.loc[:, 'Tx'])\n",
+    "\n",
+    "# Model (Voting classifier)\n",
+    "lr = LogisticRegression(random_state=999, multi_class='multinomial')\n",
+    "rf = RandomForestClassifier(random_state = 999)\n",
+    "lgbm = LGBMClassifier(random_state=999)\n",
+    "sv = svm.SVC(random_state=999, probability=True)\n",
+    "mlp = MLPClassifier(random_state=999, max_iter=300)\n",
+    "eclf_A = VotingClassifier(estimators=[('lr', lr), ('rf', rf), ('lgbm', lgbm), ('svm', sv), ('mlp', mlp)], \n",
+    "                          voting='soft')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1.1. Internal validation with 5-fold cross validation"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "df = pd.DataFrame()\n",
+    "\n",
+    "for i, (train_index, test_index) in enumerate(skf.split(X, y)):\n",
+    "\n",
+    "    X_train = X[train_index]\n",
+    "    y_train = y[train_index]\n",
+    "    X_test = X[test_index]\n",
+    "    y_test = y[test_index]\n",
+    "    \n",
+    "    # preprocessing for internal datasets\n",
+    "    scaler = MinMaxScaler().fit(X_train)\n",
+    "    X_train = scaler.transform(X_train)\n",
+    "    X_test = scaler.transform(X_test)\n",
+    "    \n",
+    "    # model training\n",
+    "    eclf.fit(X_train, y_train)\n",
+    "    \n",
+    "    # 1st result prediction\n",
+    "    y_pred = eclf.predict(X_test)\n",
+    "\n",
+    "    df.loc[i, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "    \n",
+    "    # 2nd prediction\n",
+    "    test_results = eclf.transform(X_test)\n",
+    "\n",
+    "    results = []\n",
+    "    pred_1 = []\n",
+    "    pred_2 = []\n",
+    "\n",
+    "    for result in test_results:\n",
+    "        result = result.reshape(5,6)\n",
+    "        result = np.sum(result, axis=0)\n",
+    "        results.append(np.argsort(result))\n",
+    "        pred_1.append(np.argsort(result)[-1])\n",
+    "        pred_2.append(np.argsort(result)[-2])\n",
+    "\n",
+    "    # 2nd result summation\n",
+    "    pred_total = pred_1.copy()\n",
+    "\n",
+    "    for j, real in enumerate(y_test):\n",
+    "        if pred_1[j] == real:\n",
+    "            pass\n",
+    "        else:\n",
+    "            if pred_2[j] == real:\n",
+    "                pred_total[j] = pred_2[j] \n",
+    "\n",
+    "    y_pred = pred_total\n",
+    "\n",
+    "    df.loc[i, '2_Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, '2_Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, '2_Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, '2_F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, '2_Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, '2_MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "    \n",
+    "for col in df.columns:    \n",
+    "    df.loc['Mean', col] = df[col].mean()\n",
+    "    df.loc['SD', col] = df[col].std()\n",
+    "    \n",
+    "df_in = df.copy()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1.2. External validation after training with whole internal dataset"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# preprocessing for external validation datasets\n",
+    "scaler = MinMaxScaler().fit(X)\n",
+    "_X = scaler.transform(X)\n",
+    "\n",
+    "df_KU.loc[:, 'age':'Meta'] = scaler.transform(df_KU.loc[:, 'age':'Meta'])\n",
+    "df_BH.loc[:, 'age':'Meta'] = scaler.transform(df_BH.loc[:, 'age':'Meta'])\n",
+    "df_SM.loc[:, 'age':'Meta'] = scaler.transform(df_SM.loc[:, 'age':'Meta'])\n",
+    "df_SN.loc[:, 'age':'Meta'] = scaler.transform(df_SN.loc[:, 'age':'Meta'])\n",
+    "df_CM.loc[:, 'age':'Meta'] = scaler.transform(df_CM.loc[:, 'age':'Meta'])\n",
+    "df_SV.loc[:, 'age':'Meta'] = scaler.transform(df_SV.loc[:, 'age':'Meta'])\n",
+    "df_CA.loc[:, 'age':'Meta'] = scaler.transform(df_CA.loc[:, 'age':'Meta'])\n",
+    "df_IH.loc[:, 'age':'Meta'] = scaler.transform(df_IH.loc[:, 'age':'Meta'])\n",
+    "\n",
+    "# model training\n",
+    "eclf.fit(_X, y)\n",
+    "\n",
+    "# model testing: external validation\n",
+    "centers = [\"KU\", \"BH\", \"SM\", \"SN\", \"CM\", \"SV\", \"CA\", \"IH\"]\n",
+    "mod = sys.modules[__name__]\n",
+    "\n",
+    "df = pd.DataFrame()\n",
+    "\n",
+    "for i, center in enumerate(centers):\n",
+    "    test_data = getattr(mod, f\"df_{center}\")\n",
+    "\n",
+    "    X_test = np.array(test_data.loc[:, 'age':'Meta'])\n",
+    "    y_test = np.array(test_data.loc[:, 'Tx'])\n",
+    "    \n",
+    "    # 1st result prediction\n",
+    "    y_pred = eclf.predict(X_test)\n",
+    "\n",
+    "    df.loc[i, 'Center'] = center\n",
+    "    df.loc[i, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "\n",
+    "    # 2nd result summation\n",
+    "    test_results = eclf.transform(X_test)\n",
+    "\n",
+    "    results = []\n",
+    "    pred_1 = []\n",
+    "    pred_2 = []\n",
+    "\n",
+    "    for result in test_results:\n",
+    "        result = result.reshape(5,6)\n",
+    "        result = np.sum(result, axis=0)\n",
+    "        results.append(np.argsort(result))\n",
+    "        pred_1.append(np.argsort(result)[-1])\n",
+    "        pred_2.append(np.argsort(result)[-2])\n",
+    "\n",
+    "    pred_total = pred_1.copy()\n",
+    "\n",
+    "    for j, real in enumerate(y_test):\n",
+    "        if pred_1[j] == real:\n",
+    "            pass\n",
+    "        else:\n",
+    "            if pred_2[j] == real:\n",
+    "                pred_total[j] = pred_2[j] \n",
+    "\n",
+    "    y_pred = pred_total\n",
+    "\n",
+    "    df.loc[i, '2_Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, '2_Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, '2_Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, '2_F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, '2_Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, '2_MCC'] = matthews_corrcoef(y_test, y_pred)    \n",
+    "    \n",
+    "for col in df.columns[1:]:\n",
+    "    df.loc['Mean', col] = df[col].mean()\n",
+    "    df.loc['SD', col] = df[col].std()\n",
+    "    \n",
+    "df_ex = df.copy()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 1.3. Training and validation with individual dataset "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df_all = pd.DataFrame()\n",
+    "\n",
+    "for n, center in enumerate(centers):\n",
+    "    test_data = getattr(mod, f\"df_{center}\")\n",
+    "\n",
+    "    X = np.array(test_data.loc[:, 'age':'Meta'])\n",
+    "    y = np.array(test_data.loc[:, 'Tx'])\n",
+    "    df = pd.DataFrame()\n",
+    "    \n",
+    "    # model training with individual dataset with 5-fold CV\n",
+    "    for i, (train_index, test_index) in enumerate(skf.split(X, y)):\n",
+    "\n",
+    "        X_train = X[train_index]\n",
+    "        y_train = y[train_index]\n",
+    "        X_test = X[test_index]\n",
+    "        y_test = y[test_index]\n",
+    "\n",
+    "        # preprocessing \n",
+    "        scaler = MinMaxScaler().fit(X_train)\n",
+    "        X_train = scaler.transform(X_train)\n",
+    "        X_test = scaler.transform(X_test)\n",
+    "\n",
+    "        # model training\n",
+    "        eclf.fit(X_train, y_train)\n",
+    "\n",
+    "        # 1st result prediction\n",
+    "        y_pred = eclf.predict(X_test)\n",
+    "\n",
+    "        df.loc[i, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "        df.loc[i, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "        df.loc[i, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "        df.loc[i, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "        df.loc[i, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "        df.loc[i, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "\n",
+    "        # 2nd prediction\n",
+    "        test_results = eclf.transform(X_test)\n",
+    "\n",
+    "        results = []\n",
+    "        pred_1 = []\n",
+    "        pred_2 = []\n",
+    "\n",
+    "        for result in test_results:\n",
+    "            result = result.reshape(5,6)\n",
+    "            result = np.sum(result, axis=0)\n",
+    "            results.append(np.argsort(result))\n",
+    "            pred_1.append(np.argsort(result)[-1])\n",
+    "            pred_2.append(np.argsort(result)[-2])\n",
+    "\n",
+    "        # 2nd result summation\n",
+    "        pred_total = pred_1.copy()\n",
+    "\n",
+    "        for j, real in enumerate(y_test):\n",
+    "            if pred_1[j] == real:\n",
+    "                pass\n",
+    "            else:\n",
+    "                if pred_2[j] == real:\n",
+    "                    pred_total[j] = pred_2[j] \n",
+    "\n",
+    "        y_pred = pred_total\n",
+    "\n",
+    "        df.loc[i, '2_Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "        df.loc[i, '2_Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "        df.loc[i, '2_Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "        df.loc[i, '2_F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "        df.loc[i, '2_Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "        df.loc[i, '2_MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "\n",
+    "    for col in df.columns:    \n",
+    "        df.loc['Mean', col] = df[col].mean()\n",
+    "        df.loc['SD', col] = df[col].std()\n",
+    "        \n",
+    "    df_all = pd.concat([df_all, df])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 2. Top classifiers sorted by accuracy for internal dataset"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# ML classifiers\n",
+    "\n",
+    "lr = LogisticRegression(random_state=999) \n",
+    "dt = DecisionTreeClassifier(random_state=999) \n",
+    "et = ExtraTreesClassifier(random_state=999) \n",
+    "rf = RandomForestClassifier(random_state = 999) \n",
+    "ada = AdaBoostClassifier(random_state=999)\n",
+    "gbc = GradientBoostingClassifier(random_state=999)\n",
+    "hgbc = HistGradientBoostingClassifier(random_state=999)\n",
+    "xgboost = xgb.XGBClassifier(random_state=999, verbosity=0) \n",
+    "lightgbm = LGBMClassifier(random_state=999, verbosity=-1, force_row_wise=True) \n",
+    "catboost = CatBoostClassifier(random_state=999, verbose=0)\n",
+    "nb = GaussianNB() \n",
+    "nbb = BernoulliNB()\n",
+    "gpc = GaussianProcessClassifier(kernel=1.0*RBF(1.0), random_state=999) \n",
+    "lda = LinearDiscriminantAnalysis()\n",
+    "qda = QuadraticDiscriminantAnalysis()\n",
+    "linearsvm = svm.SVC(random_state=999, kernel='linear', probability=True)\n",
+    "mlp = MLPClassifier(random_state=999) \n",
+    "knn = KNeighborsClassifier(n_neighbors=6)\n",
+    "km = KMeans(n_clusters=6, random_state=999)\n",
+    "\n",
+    "clfs = [lr, knn, nb, dt, linearsvm, gpc, mlp, rf, qda, ada, gbc,\n",
+    "       lda, et, xgboost, lightgbm, catboost, hgbc, nbb, km]\n",
+    "\n",
+    "clf_name = ['lr', 'knn', 'nb', 'dt', 'linearsvm', 'gpc', 'mlp', \n",
+    "            'rf', 'qda', 'ada', 'gbc', 'lda', 'et', 'xgboost', 'lightgbm', 'catboost', \n",
+    "            'hgbc', 'nbb', 'km']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "jupyter": {
+     "source_hidden": true
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "df_all = pd.DataFrame()\n",
+    "\n",
+    "for i, clf in enumerate(tqdm(clfs)):\n",
+    "    \n",
+    "    df = pd.DataFrame()\n",
+    "\n",
+    "    for f, (train_index, test_index) in enumerate(skf.split(X, y)):\n",
+    "\n",
+    "        X_train = X[train_index]\n",
+    "        y_train = y[train_index]\n",
+    "        X_test = X[test_index]\n",
+    "        y_test = y[test_index]\n",
+    "\n",
+    "        # model training with each classifier for internal dataset with 5-fold CV\n",
+    "        clf.fit(X_train, y_train)\n",
+    "        \n",
+    "        # model testing \n",
+    "        y_pred = clf.predict(X_test)\n",
+    "\n",
+    "        df.loc[f, 'Classifier'] = clf_name[i]\n",
+    "        df.loc[f, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "        df.loc[f, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "        df.loc[f, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "        df.loc[f, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "        df.loc[f, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "        df.loc[f, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "\n",
+    "    for col in df.columns[1:]:    \n",
+    "        df.loc['Mean', col] = df[col].mean()\n",
+    "        df.loc['SD', col] = df[col].std()\n",
+    "        \n",
+    "    df_all = pd.concat([df_all, df])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3. Various number of classifiers composing voting classifier"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "jupyter": {
+     "source_hidden": true
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "skf = StratifiedKFold(n_splits = 5, shuffle = True, random_state = 999)\n",
+    "\n",
+    "X = np.array(df_AM.loc[:, 'age':'Meta'])\n",
+    "y = np.array(df_AM.loc[:, 'Tx'])\n",
+    "\n",
+    "# Top 7 classifiers\n",
+    "linearsvm = svm.SVC(random_state=999, kernel='linear', probability=True)\n",
+    "gpc = GaussianProcessClassifier(kernel=1.0*RBF(1.0), random_state=999) \n",
+    "rf = RandomForestClassifier(random_state = 999) \n",
+    "et = ExtraTreesClassifier(random_state=999) \n",
+    "hgbc = HistGradientBoostingClassifier(random_state=999)\n",
+    "lgbm = LGBMClassifier(random_state=999)\n",
+    "lr = LogisticRegression(random_state=999, multi_class='multinomial')\n",
+    "mlp = MLPClassifier(random_state=999, max_iter=300)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Top 1"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "jupyter": {
+     "source_hidden": true
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "df = pd.DataFrame()\n",
+    "\n",
+    "acc, rec_mac, pre_wei, f1_wei, cks, mcc = [], [], [], [], [], []\n",
+    "\n",
+    "for i, (train_index, test_index) in enumerate(skf.split(X, y)):\n",
+    "\n",
+    "    X_train = X[train_index]\n",
+    "    y_train = y[train_index]\n",
+    "    X_test = X[test_index]\n",
+    "    y_test = y[test_index]\n",
+    "\n",
+    "    # preprocessing\n",
+    "    scaler = MinMaxScaler().fit(X_train)\n",
+    "    X_train = scaler.transform(X_train)\n",
+    "    X_test = scaler.transform(X_test)\n",
+    "    \n",
+    "    # model training\n",
+    "    linearsvm.fit(X_train, y_train)\n",
+    "    \n",
+    "    # model testing\n",
+    "    y_pred = linearsvm.predict(X_test)\n",
+    "\n",
+    "    df.loc[i, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "    \n",
+    "for col in df.columns:    \n",
+    "    df.loc['Mean', col] = df[col].mean()\n",
+    "    df.loc['SD', col] = df[col].std()\n",
+    "    \n",
+    "df_in_1 = df.copy()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Top 3"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "jupyter": {
+     "source_hidden": true
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "eclf = VotingClassifier(estimators=[('linearsvm', linearsvm), ('gpc', gpc), ('rf', rf)], \n",
+    "                        voting='soft')\n",
+    "df = pd.DataFrame()\n",
+    "\n",
+    "acc, rec_mac, pre_wei, f1_wei, cks, mcc = [], [], [], [], [], []\n",
+    "\n",
+    "for i, (train_index, test_index) in enumerate(skf.split(X, y)):\n",
+    "\n",
+    "    X_train = X[train_index]\n",
+    "    y_train = y[train_index]\n",
+    "    X_test = X[test_index]\n",
+    "    y_test = y[test_index]\n",
+    "\n",
+    "    # preprocessing\n",
+    "    scaler = MinMaxScaler().fit(X_train)\n",
+    "    X_train = scaler.transform(X_train)\n",
+    "    X_test = scaler.transform(X_test)\n",
+    "    \n",
+    "    # model training\n",
+    "    eclf.fit(X_train, y_train)\n",
+    "    \n",
+    "    # model testing\n",
+    "    y_pred = eclf.predict(X_test)\n",
+    "\n",
+    "    df.loc[i, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "    \n",
+    "for col in df.columns:    \n",
+    "    df.loc['Mean', col] = df[col].mean()\n",
+    "    df.loc['SD', col] = df[col].std()\n",
+    "    \n",
+    "df_in_3 = df.copy()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Top 5"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "jupyter": {
+     "source_hidden": true
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "eclf = VotingClassifier(estimators=[('linearsvm', linearsvm), ('gpc', gpc), ('rf', rf), \n",
+    "                                    ('et', et), ('hgbc', hgbc)], voting='soft')\n",
+    "df = pd.DataFrame()\n",
+    "\n",
+    "acc, rec_mac, pre_wei, f1_wei, cks, mcc = [], [], [], [], [], []\n",
+    "\n",
+    "for i, (train_index, test_index) in enumerate(skf.split(X, y)):\n",
+    "\n",
+    "    X_train = X[train_index]\n",
+    "    y_train = y[train_index]\n",
+    "    X_test = X[test_index]\n",
+    "    y_test = y[test_index]\n",
+    "\n",
+    "    # preprocessing\n",
+    "    scaler = MinMaxScaler().fit(X_train)\n",
+    "    X_train = scaler.transform(X_train)\n",
+    "    X_test = scaler.transform(X_test)\n",
+    "    \n",
+    "    # model training\n",
+    "    eclf.fit(X_train, y_train)\n",
+    "    \n",
+    "    # model testing\n",
+    "    y_pred = eclf.predict(X_test)\n",
+    "\n",
+    "    df.loc[i, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "    \n",
+    "for col in df.columns:    \n",
+    "    df.loc['Mean', col] = df[col].mean()\n",
+    "    df.loc['SD', col] = df[col].std()\n",
+    "    \n",
+    "df_in_5 = df.copy()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Top 7"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "jupyter": {
+     "source_hidden": true
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "eclf = VotingClassifier(estimators=[('linearsvm', linearsvm), ('gpc', gpc), ('rf', rf), \n",
+    "                                    ('et', et), ('hgbc', hgbc), ('lgbm', lgbm),\n",
+    "                                    ('lr', lr)], voting='soft')\n",
+    "df = pd.DataFrame()\n",
+    "\n",
+    "acc, rec_mac, pre_wei, f1_wei, cks, mcc = [], [], [], [], [], []\n",
+    "\n",
+    "for i, (train_index, test_index) in enumerate(skf.split(X, y)):\n",
+    "\n",
+    "    X_train = X[train_index]\n",
+    "    y_train = y[train_index]\n",
+    "    X_test = X[test_index]\n",
+    "    y_test = y[test_index]\n",
+    "\n",
+    "    # preprocessing\n",
+    "    scaler = MinMaxScaler().fit(X_train)\n",
+    "    X_train = scaler.transform(X_train)\n",
+    "    X_test = scaler.transform(X_test)\n",
+    "    \n",
+    "    # model training\n",
+    "    eclf.fit(X_train, y_train)\n",
+    "    \n",
+    "    # model testing\n",
+    "    y_pred = eclf.predict(X_test)\n",
+    "\n",
+    "    df.loc[i, 'Accuracy'] = accuracy_score(y_test, y_pred)\n",
+    "    df.loc[i, 'Recall_macro'] = recall_score(y_test, y_pred, average='macro')\n",
+    "    df.loc[i, 'Precision_weighted'] = precision_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'F1_weighted'] = f1_score(y_test, y_pred, average='weighted')\n",
+    "    df.loc[i, 'Kappa'] = cohen_kappa_score(y_test, y_pred)\n",
+    "    df.loc[i, 'MCC'] = matthews_corrcoef(y_test, y_pred)\n",
+    "    \n",
+    "for col in df.columns:    \n",
+    "    df.loc['Mean', col] = df[col].mean()\n",
+    "    df.loc['SD', col] = df[col].std()\n",
+    "    \n",
+    "df_in_7 = df.copy()\n",
+    "final = pd.concat([df_in_1, df_in_3, df_in_5, df_in_7])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.5"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
