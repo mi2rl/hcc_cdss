@@ -17,15 +17,10 @@ from sksurv.metrics import cumulative_dynamic_auc
 from sksurv.metrics import integrated_brier_score
 
 
-# 0. Loading dataset
+# Loading dataset
+df = pd.read_excel('./Dataset.xlsx', sheet_name='Sheet1', engine='openpyxl')
 
-df = pd.read_excel('/Nas/0_All_rev.xlsx', sheet_name='All', engine='openpyxl')
-
-df = df.fillna(0)
-for i in df.columns[1:-1]:
-    for j in range(len(df)):
-        df.loc[j,i] = float(df.loc[j,i])
-        
+# 9 institutional datasets        
 df_KU = df[df['Center'] == 1]
 df_BH = df[df['Center'] == 2]
 df_SM = df[df['Center'] == 3]
