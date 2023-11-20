@@ -39,15 +39,9 @@ from sklearn.metrics import cohen_kappa_score
 from sklearn.metrics import matthews_corrcoef
 
 # Lodading dataset 
-df = pd.read_excel('/workspace/HCC/0_All_rev.xlsx', 
-                   sheet_name='All', engine='openpyxl')
+df = pd.read_excel('./Dataset.xlsx', sheet_name='Sheet1', engine='openpyxl')
 
-df = df.fillna(0)
-
-for i in df.columns[1:-1]:
-    for j in range(len(df)):
-        df.loc[j,i] = float(df.loc[j,i])
-
+# 9 institutional datasets
 df_KU = df[df['Center'] == 1]
 df_BH = df[df['Center'] == 2]
 df_SM = df[df['Center'] == 3]
@@ -58,12 +52,7 @@ df_AM = df[df['Center'] == 7]
 df_CA = df[df['Center'] == 8]
 df_IH = df[df['Center'] == 9]
 
-
 # 1. Model training and validation
-skf = StratifiedKFold(n_splits = 5, shuffle = True, random_state = 999)
-
-X = np.array(df_AM.loc[:, 'age':'Meta'])
-y = np.array(df_AM.loc[:, 'Tx'])
 
 # Model (Voting classifier)
 lr = LogisticRegression(random_state=999, multi_class='multinomial')
@@ -74,10 +63,12 @@ mlp = MLPClassifier(random_state=999, max_iter=300)
 eclf_A = VotingClassifier(estimators=[('lr', lr), ('rf', rf), ('lgbm', lgbm), ('svm', sv), ('mlp', mlp)], voting='soft')
 
 # 1.1. Internal validation with 5-fold cross validation
+skf = StratifiedKFold(n_splits = 5, shuffle = True, random_state = 999)
+X = np.array(df_AM.loc[:, 'age':'Meta']) # df_AM = internal dataset
+y = np.array(df_AM.loc[:, 'Tx'])
+
 df = pd.DataFrame()
-
 for i, (train_index, test_index) in enumerate(skf.split(X, y)):
-
     X_train = X[train_index]
     y_train = y[train_index]
     X_test = X[test_index]
@@ -138,7 +129,7 @@ for col in df.columns:
     df.loc['Mean', col] = df[col].mean()
     df.loc['SD', col] = df[col].std()
     
-df_in = df.copy()
+df_in = df.copy() # Results for internal validation
 
 # 1.2. External validation after training with whole internal dataset
 # preprocessing for external validation datasets
@@ -216,7 +207,7 @@ for col in df.columns[1:]:
     df.loc['Mean', col] = df[col].mean()
     df.loc['SD', col] = df[col].std()
     
-df_ex = df.copy()
+df_ex = df.copy() # Results for external validation
 
 # 1.3. Training and validation with individual dataset 
 df_all = pd.DataFrame()
@@ -291,7 +282,7 @@ for n, center in enumerate(centers):
         df.loc['Mean', col] = df[col].mean()
         df.loc['SD', col] = df[col].std()
         
-    df_all = pd.concat([df_all, df])
+    df_all = pd.concat([df_all, df]) # Results for individual training and validation
 
 
 # 2. Top classifiers sorted by accuracy for internal dataset
